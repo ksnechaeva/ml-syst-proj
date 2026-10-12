@@ -1,0 +1,6 @@
+trans_date_trans_time,cc_num,merchant,category,amt,first,last,gender,street,city,state,zip,lat,long,city_pop,job,dob,trans_num,unix_time,merch_lat,merch_long,is_fraud
+2019-01-01 00:00:18,2703186189652095,fraud_Rippin_Kub,grocery_pos,4.97,Jennifer,Banks,F,561 Perry Cove,Moravian Falls,NC,28654,36.0788,-81.1781,3495,Psychologist,1988-03-09,tx-nc-1,1325376018,36.011293,-82.048315,0
+2019-01-01 00:01:08,630423337322,fraud_Heller_Abshire,gas_transport,107.23,Stephanie,Gill,F,4138 David Fall,Morgan,UT,84032,41.6125,-109.1143,547,Engineer,1978-06-21,tx-ut-1,1325376068,39.450498,-109.960431,0
+2019-01-01 00:02:15,38859492057661,fraud_Lind-Buckridge,entertainment,220.50,Edward,Sanchez,M,594 White Dale,Salt Lake City,UT,84101,40.7608,-111.8910,200591,Designer,1962-01-19,tx-ut-2,1325376135,40.700000,-111.900000,0
+2019-01-01 00:03:01,3534093764340240,fraud_Kutch-Hegmann,shopping_net,789.99,Jeremy,White,M,9443 Cynthia Court,Raleigh,NC,27601,35.7796,-78.6382,474414,Scientist,1984-05-10,tx-nc-2,1325376181,35.800000,-78.600000,1
+2019-01-01 00:04:44,375534208663984,fraud_Keeling-Crist,misc_pos,63.10,Kathryn,Moore,F,5783 Evans Road,Phoenix,AZ,85001,33.4484,-112.0740,1608139,Teacher,1990-11-11,tx-az-1,1325376284,33.400000,-112.000000,0

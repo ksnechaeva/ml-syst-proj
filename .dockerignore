@@ -1,0 +1,9 @@
+.git
+.gitignore
+.env
+.venv
+__pycache__
+*.py[cod]
+data/*.csv
+!data/sample_transactions.csv
+results/
