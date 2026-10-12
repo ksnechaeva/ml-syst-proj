@@ -1,6 +1,6 @@
-# Kafka → ClickHouse: транзакции по штатам
+# Overview
 
-Учебный ETL-проект: Python читает CSV построчно и публикует транзакции в
+Python читает CSV построчно и публикует транзакции в
 Kafka; ClickHouse забирает сообщения через таблицу `ENGINE = Kafka`, а
 materialized view сохраняет их в оптимизированную `MergeTree`-таблицу. Итоговый
 запрос возвращает категорию самой крупной транзакции в каждом штате.
@@ -17,7 +17,6 @@ materialized view сохраняет их в оптимизированную `M
 
 ## Быстрый запуск
 
-Нужны Docker с Compose v2 и примерно 3 ГБ свободной памяти.
 
 ```bash
 cp .env.example .env
@@ -44,16 +43,13 @@ docker compose exec clickhouse clickhouse-client \
 
 ## Запуск с Kaggle CSV
 
-Скачайте файлы по выданной в задании приватной ссылке (Kaggle требует войти и
-принять приглашение). Для конкретного набора из задания загрузите оба файла:
-
 ```bash
 CSV_FILE=./data/train.csv docker compose run --rm producer
 CSV_FILE=./data/test.csv docker compose run --rm producer
 ./scripts/export_result.sh
 ```
 
-`train.csv` содержит 786 431 строку, `test.csv` — 262 144. В `test.csv` нет
+В `test.csv` нет
 целевой колонки `target`; producer подставляет `is_fraud = 0`, поскольку для
 аналитического запроса эта колонка не используется.
 
@@ -111,12 +107,3 @@ docker compose exec clickhouse clickhouse-client --query \
 `ReadFromMergeTree (max_transaction_by_state)` — это подтверждает, что читается
 агрегированная projection, а не все исходные строки.
 
-## Важные замечания
-
-- CSV с персональными данными исключены из Git через `.gitignore`; sample
-  синтетический.
-- Kafka даёт доставку как минимум один раз. Для production-защиты от дублей
-  можно использовать `ReplacingMergeTree` с версией и уникальным `trans_num`.
-- `state` здесь — штат владельца карты, поскольку именно так поле определено в
-  исходном датасете. Если преподаватель подразумевает штат магазина, понадобится
-  другое поле источника.
