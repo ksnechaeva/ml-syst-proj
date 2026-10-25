@@ -1,0 +1,17 @@
+transaction_time,merch,cat_id,amount,name_1,name_2,gender,street,one_city,us_state,post_code,lat,lon,population_city,jobs,merchant_lat,merchant_lon,target
+2019-01-03 02:10:00,fraud_Rippin_Kub,grocery_pos,4.97,Jennifer,Banks,F,561 Perry Cove,Moravian Falls,NC,28654,36.0788,-81.1781,3495,Psychologist,36.0113,-82.0483,0
+2019-01-11 14:20:00,fraud_Kutch_Hegmann,shopping_net,789.99,Jeremy,White,M,9443 Cynthia Court,Raleigh,NC,27601,35.7796,-78.6382,474414,Scientist,35.8,-78.6,1
+2019-01-18 09:00:00,fraud_Heller_Abshire,gas_transport,107.23,Stephanie,Gill,F,4138 David Fall,Morgan,UT,84032,41.6125,-109.1143,547,Engineer,39.4505,-109.9604,0
+2019-01-25 01:15:00,fraud_Lind_Buckridge,entertainment,920.0,Edward,Sanchez,M,594 White Dale,Salt Lake City,UT,84101,40.7608,-111.891,200591,Designer,34.0,-118.2,1
+2019-02-02 12:10:00,fraud_Rippin_Kub,grocery_pos,15.5,Jennifer,Banks,F,561 Perry Cove,Moravian Falls,NC,28654,36.0788,-81.1781,3495,Psychologist,36.0113,-82.0483,0
+2019-02-09 03:20:00,fraud_Kutch_Hegmann,shopping_net,650.0,Jeremy,White,M,9443 Cynthia Court,Raleigh,NC,27601,35.7796,-78.6382,474414,Scientist,40.7,-74.0,1
+2019-02-17 17:45:00,fraud_Heller_Abshire,gas_transport,72.12,Stephanie,Gill,F,4138 David Fall,Morgan,UT,84032,41.6125,-109.1143,547,Engineer,41.7,-109.2,0
+2019-02-24 00:05:00,fraud_Lind_Buckridge,entertainment,1100.0,Edward,Sanchez,M,594 White Dale,Salt Lake City,UT,84101,40.7608,-111.891,200591,Designer,25.7,-80.2,1
+2019-03-04 08:30:00,fraud_Rippin_Kub,grocery_pos,28.0,Jennifer,Banks,F,561 Perry Cove,Moravian Falls,NC,28654,36.0788,-81.1781,3495,Psychologist,36.1,-81.2,0
+2019-03-10 02:55:00,fraud_Kutch_Hegmann,shopping_net,875.5,Jeremy,White,M,9443 Cynthia Court,Raleigh,NC,27601,35.7796,-78.6382,474414,Scientist,47.6,-122.3,1
+2019-03-19 19:10:00,fraud_Heller_Abshire,gas_transport,91.0,Stephanie,Gill,F,4138 David Fall,Morgan,UT,84032,41.6125,-109.1143,547,Engineer,41.6,-109.0,0
+2019-03-27 04:25:00,fraud_Lind_Buckridge,entertainment,730.0,Edward,Sanchez,M,594 White Dale,Salt Lake City,UT,84101,40.7608,-111.891,200591,Designer,32.8,-96.8,1
+2019-04-05 10:00:00,fraud_Rippin_Kub,grocery_pos,33.2,Jennifer,Banks,F,561 Perry Cove,Moravian Falls,NC,28654,36.0788,-81.1781,3495,Psychologist,36.0,-81.0,0
+2019-04-12 01:40:00,fraud_Kutch_Hegmann,shopping_net,990.0,Jeremy,White,M,9443 Cynthia Court,Raleigh,NC,27601,35.7796,-78.6382,474414,Scientist,42.4,-71.1,1
+2019-04-20 16:15:00,fraud_Heller_Abshire,gas_transport,48.75,Stephanie,Gill,F,4138 David Fall,Morgan,UT,84032,41.6125,-109.1143,547,Engineer,41.5,-109.3,0
+2019-04-28 03:05:00,fraud_Lind_Buckridge,entertainment,1250.0,Edward,Sanchez,M,594 White Dale,Salt Lake City,UT,84101,40.7608,-111.891,200591,Designer,29.8,-95.4,1

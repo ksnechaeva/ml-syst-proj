@@ -1,109 +1,229 @@
-# Overview
+# Переобучение антифрод-модели в Airflow
 
-Python читает CSV построчно и публикует транзакции в
-Kafka; ClickHouse забирает сообщения через таблицу `ENGINE = Kafka`, а
-materialized view сохраняет их в оптимизированную `MergeTree`-таблицу. Итоговый
-запрос возвращает категорию самой крупной транзакции в каждом штате.
+Это продолжение моего проекта со скорингом транзакций из Kafka. В этой работе я
+добавила Apache Airflow: теперь данные для обучения постепенно пополняются, модель
+переобучается по расписанию, а новая версия публикуется в общий каталог. Сервис
+скоринга замечает новый файл сам, поэтому перезапускать контейнер после обучения
+не нужно.
 
-## Что находится в репозитории
+За основу я брала код с занятия 7, но переделала структуру проекта, подготовку
+признаков, хранение результатов, проверку качества модели и Data Quality проверки.
+Модель простая — CatBoost на CPU, потому что в этой работе важнее сам пайплайн, а
+не качество предсказаний.
 
-- `producer.py` — отдельный потоковый CSV → Kafka producer;
-- `sql/01_tables.sql` — DDL Kafka-таблицы, materialized view и постоянной таблицы;
-- `sql/02_largest_transaction_by_state.sql` — аналитический запрос;
-- `results/largest_transaction_category_by_state.csv` — результат по полному
-  набору `train.csv` + `test.csv` (1 048 575 транзакций, 51 штат/территория);
-- `docker-compose.yml` — Kafka (KRaft, без ZooKeeper), ClickHouse и producer;
-- `data/sample_transactions.csv` — минимальный набор для smoke test.
+## Что здесь запускается
 
-## Быстрый запуск
+- `transaction_simulator` отправляет транзакции в Kafka;
+- `fraud_detector` читает их, считает `score` и `fraud_flag`;
+- `scoring_writer` сохраняет результат и версию модели в PostgreSQL;
+- `data_loader` один раз загружает начальную размеченную выборку;
+- Airflow запускает три DAG по расписанию;
+- Kafka UI нужен, чтобы посмотреть входные и выходные сообщения.
 
+Все сервисы находятся в одной docker-сети. Каталог с моделями одновременно
+смонтирован в Airflow и в сервис скоринга.
+
+```mermaid
+flowchart LR
+    CSV[train.csv] --> Loader[data_loader]
+    Loader --> Data[(labeled_transactions)]
+    CSV --> Simulator[transaction_simulator]
+    Simulator --> KafkaIn[Kafka: transactions]
+    KafkaIn --> Scorer[fraud_detector]
+    Models[(model_registry)] --> Scorer
+    Scorer --> KafkaOut[Kafka: scoring]
+    KafkaOut --> Writer[scoring_writer]
+    Writer --> Scores[(scores)]
+    Supply[supply_labeled_batch] --> Data
+    Data --> Retrain[retrain_catboost]
+    Retrain --> Models
+    Data --> DQ[data_quality]
+    DQ --> Reports[(HTML-отчёты)]
+```
+
+## Как запустить проект
+
+Нужны Docker Desktop, Docker Compose v2 и примерно 6 ГБ свободной оперативной
+памяти. Первый запуск может идти довольно долго, потому что Docker скачивает и
+собирает образы Airflow и CatBoost.
 
 ```bash
+git clone https://github.com/ksnechaeva/ml-syst-proj.git
+cd ml-syst-proj
 cp .env.example .env
-docker compose up -d kafka clickhouse
-docker compose run --rm producer
-./scripts/smoke_test.sh
+docker compose up --build -d
+docker compose ps
 ```
 
-Открыть результат:
+Я положила в репозиторий небольшой синтетический `data/train.csv`, поэтому для
+проверки ничего дополнительно скачивать не нужно. Если хочется использовать другой
+CSV, его путь можно задать в `TRAIN_DATA_CSV` в файле `.env`.
+
+После запуска можно открыть:
+
+| Что | Адрес и доступ |
+|---|---|
+| Airflow | http://localhost:8081, логин `admin`, пароль `admin` |
+| Kafka UI | http://localhost:8082 |
+| PostgreSQL | `localhost:5433`, пользователь `fraud_user`, пароль `fraud_pass`, БД `fraud_db` |
+
+Проверить, что Airflow увидел DAG-и и в них нет ошибок импорта:
 
 ```bash
-cat results/largest_transaction_category_by_state.csv
+docker compose exec airflow airflow dags list-import-errors
+docker compose exec airflow airflow dags list
 ```
 
-Проверить число строк вручную:
+Должны появиться три DAG: `supply_labeled_batch`, `retrain_catboost` и
+`data_quality`.
+
+## Как устроены DAG-и
+
+Все DAG запускаются раз в 5 минут. У них выключен `catchup`, поэтому после простоя
+Airflow не пытается выполнить все пропущенные запуски. Их также можно запустить
+вручную кнопкой Trigger в UI. В самих файлах из папки `dags/` я оставила только
+сборку графа, а код задач вынесла в отдельные модули в `pipeline/`.
+
+### 1. `supply_labeled_batch`
+
+Цепочка задач:
+
+```text
+sample_next_month -> append_labeled_batch -> prune_old_months
+```
+
+DAG берёт выборку уже размеченных строк, переносит `transaction_time` на следующий
+месяц и добавляет батч в витрину. После этого удаляются строки, которые старше
+заданной глубины истории.
+
+В моей конфигурации:
+
+- максимальный размер батча — 100 000 строк (`SUPPLY_SAMPLE_SIZE`);
+- глубина хранения истории — 3 года (`HISTORY_YEARS`).
+
+Повторный запуск не создаёт копии одного месяца: данные целевого месяца заменяются
+атомарно.
+
+### 2. `retrain_catboost`
+
+Цепочка задач:
+
+```text
+extract_month_batch
+    -> slide_training_window
+    -> time_train_test_split
+    -> preprocess_dataset
+    -> fit_catboost
+    -> evaluate_candidate
+    -> publish_model
+```
+
+Окно обучения состоит из трёх календарных месяцев. Два более ранних месяца идут
+в train, самый свежий — в test. Случайный `train_test_split` здесь не используется.
+Когда приходит новый месяц, самый старый месяц удаляется из окна.
+
+Мой препроцессинг добавляет следующие признаки:
+
+- расстояние между покупателем и магазином по формуле Haversine;
+- `log1p` от суммы;
+- признак круглой суммы;
+- признак далёкой покупки;
+- месяц, день, час и день недели;
+- признаки ночной операции, выходного дня и крупной суммы.
+
+Категориальные признаки обрабатывает CatBoost.
+
+После обучения считаются ROC-AUC и F1 на самом свежем месяце. Новая модель
+сравнивается с текущей production-версией. Если хотя бы одна доступная метрика
+стала хуже с учётом `MODEL_METRIC_TOLERANCE`, кандидат сохраняется как отклонённый,
+но файл `latest.txt` не переключается. То есть плохая модель не попадает в
+скоринг. Для первой модели сравнения нет, поэтому она принимается автоматически.
+
+Указатель `training_state.next_batch_month` обновляется только после успешного
+сохранения и публикации модели. Поэтому при повторном запуске после ошибки месяц
+не пропустится и окно не сдвинется второй раз.
+
+### 3. `data_quality`
+
+Цепочка задач:
+
+```text
+extract_profile -> validate_profile -> publish_html_report
+```
+
+Я проверяю семь правил:
+
+1. датасет не пустой;
+2. `transaction_time` заполнен;
+3. `amount` заполнен и неотрицателен;
+4. `target` содержит только 0 или 1;
+5. широта и долгота находятся в допустимых диапазонах;
+6. `merch` и `cat_id` не пустые;
+7. в данных есть оба класса.
+
+HTML-отчёт создаётся даже при неуспешной проверке, чтобы было видно конкретные
+ошибки. Он хранится отдельно от моделей, в каталоге `/opt/airflow/reports`.
+
+Посмотреть список отчётов и скопировать последний на компьютер:
 
 ```bash
-docker compose exec clickhouse clickhouse-client \
-  --query "SELECT count() FROM transactions.card_transactions"
+docker compose exec airflow ls -la /opt/airflow/reports
+docker compose cp airflow:/opt/airflow/reports/latest.html ./dq_report.html
 ```
 
-Остановить контейнеры: `docker compose down`. Полностью удалить данные и начать
-заново: `docker compose down -v`.
+## Как проверить работу вручную
 
-## Запуск с Kaggle CSV
+В Airflow нужно включить DAG-и переключателем и нажать Trigger. То же самое можно
+сделать из терминала:
 
 ```bash
-CSV_FILE=./data/train.csv docker compose run --rm producer
-CSV_FILE=./data/test.csv docker compose run --rm producer
-./scripts/export_result.sh
+docker compose exec airflow airflow dags trigger data_quality
+docker compose exec airflow airflow dags trigger supply_labeled_batch
+docker compose exec airflow airflow dags trigger retrain_catboost
 ```
 
-В `test.csv` нет
-целевой колонки `target`; producer подставляет `is_fraud = 0`, поскольку для
-аналитического запроса эта колонка не используется.
-
-Producer не загружает файл целиком в память. Он понимает как исходные названия
-этого соревнования (`transaction_time`, `merch`, `cat_id`, `amount`, `us_state`,
-`target`), так и распространённую схему (`trans_date_trans_time`, `merchant`,
-`category`, `amt`, `state`, `is_fraud`). Для первой схемы он сам вычисляет
-`unix_time` и стабильный идентификатор строки. Регистр заголовков не важен,
-лишний индексный столбец игнорируется. Повторный запуск повторно отправит все
-строки; для чистого учебного прогона сначала выполните `make reset && make up`.
-
-## Как движутся данные
-
-1. Producer преобразует строку CSV в JSON и отправляет её в топик
-   `transactions`. Ключом служит штат, поэтому сообщения одного штата попадают в
-   одну Kafka partition.
-2. `transactions.transactions_kafka` читает JSON как поток. Данные в таблице
-   Kafka не хранятся.
-3. Materialized view автоматически вставляет сообщения в
-   `transactions.card_transactions`.
-4. Запрос использует `argMax(category, tuple(amt, unix_time, trans_num))`.
-   `argMax` возвращает категорию той строки, у которой максимален второй
-   аргумент. `unix_time` и `trans_num` дают детерминированный выбор при равных
-   суммах.
-
-## Оптимизация ClickHouse
-
-Постоянная таблица использует:
-
-- `LowCardinality` для повторяющихся `state`, `category`, `merchant` и других
-  строк — словарное кодирование уменьшает объём;
-- узкие числовые типы (`UInt8`, `UInt32`) и `Decimal(12,2)` для денег;
-- `ZSTD`/`Delta` codecs для дополнительного сжатия;
-- месячные partitions и `ORDER BY (state, category, amt, ...)`;
-- aggregate projection `max_transaction_by_state`, которая хранит заранее
-  агрегированный результат по штатам. ClickHouse может автоматически подменить
-  полный scan проекции при совпадающем запросе.
-
-После добавления projection к уже заполненной таблице её нужно построить:
-
-```sql
-ALTER TABLE transactions.card_transactions
-MATERIALIZE PROJECTION max_transaction_by_state;
-```
-
-В этом проекте projection создаётся до загрузки, поэтому новые части строятся
-сразу. Проверить план и использование projection можно так:
+После зелёного запуска `retrain_catboost` проверяю, что появился новый файл модели
+и изменилась версия в `latest.txt`:
 
 ```bash
-docker compose exec clickhouse clickhouse-client --query \
-  "EXPLAIN indexes=1, optimize=1 SELECT state, argMax(category, tuple(amt, unix_time, trans_num)), max(amt) FROM transactions.card_transactions GROUP BY state"
+docker compose exec airflow sh -c \
+  'ls -la /opt/airflow/models && cat /opt/airflow/models/latest.txt'
 ```
 
-В плане должна появиться строка
-`ReadFromMergeTree (max_transaction_by_state)` — это подтверждает, что читается
-агрегированная projection, а не все исходные строки.
+Затем проверяю последние результаты скоринга:
 
+```bash
+docker compose exec postgres psql -U fraud_user -d fraud_db -c \
+  "SELECT transaction_id, round(score::numeric, 4) AS score, fraud_flag, model_version, created_at FROM scores ORDER BY id DESC LIMIT 20;"
+```
+
+У новых строк `model_version` должна совпадать со значением из `latest.txt`. Эту
+же версию можно увидеть в сообщениях топика `scoring` через Kafka UI.
+
+Состояние окна и количество строк по месяцам:
+
+```bash
+docker compose exec postgres psql -U fraud_user -d fraud_db -c \
+  "SELECT * FROM training_state; SELECT date_trunc('month', transaction_time), count(*) FROM labeled_transactions GROUP BY 1 ORDER BY 1;"
+```
+
+Если что-то не запускается, сначала смотрю логи:
+
+```bash
+docker compose logs -f airflow fraud_detector scoring_writer
+```
+
+Обычная остановка сохраняет данные:
+
+```bash
+docker compose down
+```
+
+Полный сброс вместе с томами и накопленными данными:
+
+```bash
+docker compose down -v
+```
+
+Команду с `-v` я использую только тогда, когда действительно хочу начать проверку
+с чистого состояния.
